@@ -9,7 +9,7 @@ resource fd_comedi[fd]
 
 openat$comedi(fd const[AT_FDCWD], file ptr[in, string[comedi_devices]], flags flags[open_flags], mode const[0]) fd_comedi
 
-# ioctl$COMEDI_DEVCONFIG(fd fd_comedi, cmd const[COMEDI_DEVCONFIG], arg ptr[in, comedi_devconfig])
+ioctl$COMEDI_DEVCONFIG(fd fd_comedi, cmd const[COMEDI_DEVCONFIG], arg ptr[in, comedi_devconfig])
 # ioctl$COMEDI_DEVINFO(fd fd_comedi, cmd const[COMEDI_DEVINFO], arg ptr[out, comedi_devinfo])
 # ioctl$COMEDI_SUBDINFO(fd fd_comedi, cmd const[COMEDI_SUBDINFO], arg ptr[out, comedi_subdinfo])
 # ioctl$COMEDI_CHANINFO(fd fd_comedi, cmd const[COMEDI_CHANINFO], arg ptr[out, comedi_chaninfo])
@@ -26,6 +26,13 @@ ioctl$COMEDI_INSN(fd fd_comedi, cmd const[COMEDI_INSN], arg ptr[out, comedi_insn
 ioctl$COMEDI_POLL(fd fd_comedi, cmd const[COMEDI_POLL])
 ioctl$COMEDI_SETRSUBD(fd fd_comedi, cmd const[COMEDI_SETRSUBD])
 ioctl$COMEDI_SETWSUBD(fd fd_comedi, cmd const[COMEDI_SETWSUBD])
+
+comedi_devconfig {
+	board_name	string[comedi_boards, 20]
+	options		array[int32, COMEDI_NDEVCONFOPTS]
+}
+
+comedi_boards = "8255", "aio_aio12_8", "adl_pci-7224", "ni_pci-dio-96", "pci9118dg", "aio_aio12_8", "0", "labpc-1200", "ni_labpc", "amplc_dio200", "pc212e", "das800", "cio-das800"
 
 comedi_insn {
 	insn		int32
@@ -60,5 +67,5 @@ comedi_cmd {
 	data_len	len[data, int32]
 }
 
-comedi_devices = "/dev/comedi0", "/dev/comedi1", "/dev/comedi2", "/dev/comedi3"
+comedi_devices = "/dev/comedi0", "/dev/comedi1", "/dev/comedi2", "/dev/comedi3", "/dev/comedi4", "/dev/comedi5"
 # comedi_devices = "/dev/comedi/comedi0", "/dev/comedi/comedi1", "/dev/comedi/comedi2", "/dev/comedi/comedi3"
