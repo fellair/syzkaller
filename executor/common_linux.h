@@ -94,8 +94,10 @@ static bool write_file(const char* file, const char* what, ...)
 	int len = strlen(buf);
 
 	int fd = open(file, O_WRONLY | O_CLOEXEC);
-	if (fd == -1)
+	if (fd == -1) {
+		debug("write_file: open(%s) failed: %d\n", file, -1);
 		return false;
+	}
 	if (write(fd, buf, len) != len) {
 		int err = errno;
 		close(fd);
@@ -3080,6 +3082,73 @@ error_clear_loop:
 #endif
 
 #if SYZ_EXECUTOR || __NR_syz_mount_image
+#include <errno.h>
+#include <fcntl.h>
+#include <stdarg.h>
+#include <stdbool.h>
+#include <stdio.h>
+#include <string.h>
+#include <sys/stat.h>
+#include <sys/syscall.h>
+#include <sys/types.h>
+#include <unistd.h>
+
+static long setup_nullblk_device()
+{
+	// char cmdline[256];
+	int ret = 0;
+	char dir[256];
+	snprintf(dir, sizeof(dir), "/sys/kernel/config/nullb/nullb0");
+
+	if (access(dir, F_OK) == 0) {
+		debug("setup_nullblk_device: already exists, moving on");
+		return 0;
+	}
+
+	ret = mkdir(dir, 0777);
+	if (ret != 0) {
+		debug("ERROR: setup_nullblk_device: mkdir error\n");
+		return ret;
+	}
+
+	ret = write_file("/sys/kernel/config/nullb/nullb0/size", "4096");
+	if (ret != 1) {
+		debug("ERROR: setup_nullblk_device: 1st write failed %d\n", ret);
+		return ret;
+	}
+	write_file("/sys/kernel/config/nullb/nullb0/size", "4096");
+	write_file("/sys/kernel/config/nullb/nullb0/zoned", "1");
+	write_file("/sys/kernel/config/nullb/nullb0/memory_backed", "1");
+	write_file("/sys/kernel/config/nullb/nullb0/zone_size", "64");
+
+	write_file("/sys/kernel/config/nullb/nullb0/power", "1");
+
+	char cmdline[256];
+	sprintf(cmdline, "mkzonefs -v -f /dev/nullb0");
+
+	ret = runcmdline(cmdline);
+	if (ret != 0) {
+		debug("ERROR: setup_nullblk_device: mkzonefs failed\n");
+		return ret;
+	}
+	debug("setup_nullblk_device: success");
+	return 0;
+}
+
+// static long reset_nullblk_device()
+// {
+// 	char dir[256];
+
+// 	snprintf(dir, sizeof(dir), "/sys/kernel/config/nullb/nullb0");
+
+// 	write_file("/sys/kernel/config/nullb/nullb0/power", "0");
+
+// 	// rmdir("/sys/kernel/config/nullb/nullb0");
+// 	return 0;
+// }
+#endif
+
+#if SYZ_EXECUTOR || __NR_syz_mount_image
 #include <stddef.h>
 #include <string.h>
 #include <sys/mount.h>
@@ -3110,14 +3179,16 @@ static long syz_mount_image(
 	char* source = NULL;
 	char loopname[64];
 
-	if (need_loop_device) {
+	if (need_loop_device && (strcmp(fs, "zonefs") != 0)) {
 		int loopfd;
 		// Some filesystems (e.g. FUSE) do not need a backing device or
 		// filesystem image.
 		memset(loopname, 0, sizeof(loopname));
 		snprintf(loopname, sizeof(loopname), "/dev/loop%llu", procid);
-		if (setup_loop_device(data, size, loopname, &loopfd) == -1)
+		if (setup_loop_device(data, size, loopname, &loopfd) == -1) {
+			debug("ERROR: setup_loop_device");
 			return -1;
+		}
 		// If BLK_DEV_WRITE_MOUNTED is set, we won't be able to mount()
 		// while holding the loop device fd.
 		close(loopfd);
@@ -3131,7 +3202,8 @@ static long syz_mount_image(
 	if (strlen(mount_opts) > (sizeof(opts) - 32)) {
 		debug("ERROR: syz_mount_image parameter optsarg bigger than internal opts\n");
 	}
-	strncpy(opts, mount_opts, sizeof(opts) - 32);
+	if (strcmp(fs, "zonefs") != 0)
+		strncpy(opts, mount_opts, sizeof(opts) - 32);
 	if (strcmp(fs, "iso9660") == 0) {
 		flags |= MS_RDONLY;
 	} else if (strncmp(fs, "ext", 3) == 0) {
@@ -3154,6 +3226,32 @@ static long syz_mount_image(
 	} else if (strncmp(fs, "gfs2", 4) == 0 && (strstr(opts, "errors=panic") || strstr(opts, "debug"))) {
 		// Otherwise ordinary withdrawals turn into kernel panics, see #6189.
 		strcat(opts, ",errors=withdraw");
+	} else if (strcmp(fs, "zonefs") == 0) {
+		// if (setup_nullblk_device() == 0) {
+		memset(loopname, 0, sizeof(loopname));
+		snprintf(loopname, sizeof(loopname), "/dev/nullb0");
+		source = loopname;
+		// rmdir("/sys/kernel/config/nullb/nullb0");
+		// write_file("/sys/kernel/config/nullb/nullb0/power", "1");
+		// if (access("/dev/nullb0", F_OK) != 0) {
+		// 	debug("ERROR: /dev/nullb0 was not created");
+		// 	err = -1;
+		// 	goto error_clear_loop;
+		// }
+
+		// char cmdline[256];
+		// sprintf(cmdline, "mkzonefs -v -f /dev/nullb0");
+		// if (runcmdline(cmdline)) {
+		// 	debug("ERROR: mkzonefs -v -o ... failed\n");
+		// 	err = -1;
+		// 	goto error_clear_loop;
+		// }
+		// debug("SUCCESS: mkzonefs succeeded\n");
+		// } else {
+		// 	debug("ERROR: setup_nullblk_device failed");
+		// 	err = -1;
+		// 	goto error_clear_loop;
+		// }
 	}
 	debug("syz_mount_image: size=%llu loop='%s' dir='%s' fs='%s' flags=%llu opts='%s'\n", (uint64)size, loopname, target, fs, (uint64)flags, opts);
 #if SYZ_EXECUTOR
@@ -3180,6 +3278,8 @@ static long syz_mount_image(
 	}
 
 error_clear_loop:
+	debug("goto error_clear_loop");
+	// reset_nullblk_device();
 	if (need_loop_device)
 		reset_loop_device(loopname);
 	errno = err;
@@ -4219,6 +4319,8 @@ static int do_sandbox_none(void)
 #if SYZ_EXECUTOR || SYZ_WIFI
 	initialize_wifi_devices();
 #endif
+	if (setup_nullblk_device() != 0)
+		debug("do_sandbox_none: setup nullblk_device failed");
 	sandbox_common_mount_tmpfs();
 	loop();
 	doexit(1);
