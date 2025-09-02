@@ -145,6 +145,7 @@ syz_mount_image$bcachefs(fs ptr[in, string["bcachefs"]], dir ptr[in, filename], 
 # https://zonedstorage.io/docs/getting-started/zbd-emulation
 # https://btrfs.wiki.kernel.org/index.php/Zoned
 syz_mount_image$zonefs(fs ptr[in, string["zonefs"]], dir ptr[in, filename], flags flags[mount_flags], opts ptr[in, fs_options[zonefs_options]], chdir bool8, size len[img], img ptr[in, compressed_image]) fd_dir (timeout[SYZ_MOUNT_IMAGE_TIMEOUT], no_generate, no_minimize)
+mount$zonefs(src ptr[in, string["/dev/nullb#"]], dst ptr[in, string["/mnt"]], type ptr[in, string["zonefs"]], flags flags[mount_flags], opts ptr[in, fs_options[zonefs_options]])
 
 # TODO: ubifs needs a special ubi device:
 # https://elixir.bootlin.com/linux/v6.1-rc6/source/fs/ubifs/super.c#L2063

@@ -1163,7 +1163,7 @@ static int runcmdline(char* cmdline)
 	debug("%s\n", cmdline);
 	int ret = system(cmdline);
 	if (ret) {
-		debug("FAIL: %s\n", cmdline);
+		debug("FAIL: %s %d\n", cmdline, ret);
 	}
 	return ret;
 }
@@ -3093,47 +3093,93 @@ error_clear_loop:
 #include <sys/types.h>
 #include <unistd.h>
 
+// mount$zonefs(src ptr[in, string["/dev/nullb0"]], dst ptr[in, filename], type ptr[in, string["zonefs"]], flags flags[mount_flags], opts ptr[in, fs_options[zonefs_options]])
+
 static long setup_nullblk_device()
 {
 	// char cmdline[256];
 	int ret = 0;
 	char dir[256];
-	snprintf(dir, sizeof(dir), "/sys/kernel/config/nullb/nullb0");
+	char cmdline[256];
+
+	snprintf(dir, sizeof(dir), "/sys/kernel/config/nullb/nullb%llu", procid);
 
 	if (access(dir, F_OK) == 0) {
-		debug("setup_nullblk_device: already exists, moving on");
-		return 0;
+		debug("setup_nullblk_device: directory already exists.\n");
+
+		snprintf(dir, sizeof(dir), "/dev/nullb%llu", procid);
+		if (access(dir, F_OK) == 0) {
+			debug("setup_nullblk_device: device /dev/nullb%llu already exists, moving on\n", procid);
+
+			snprintf(cmdline, sizeof(dir), "blkzone report /dev/nullb%llu", procid);
+			ret = runcmdline(cmdline);
+			if (ret != 0) {
+				debug("setup_nullblk_device error: blkzone report failed, %d\n", ret);
+			} else {
+				debug("setup_nullblk_device: blkzone report went ok, %d\n", ret);
+				return 0;
+			}
+		} else {
+			debug("setup_nullblk_device: device /dev/nullb%llu doesn't exist, moving on\n", procid);
+		}
+	} else {
+		debug("setup_nullblk_device: directory doesn't exist, moving on\n");
 	}
 
 	ret = mkdir(dir, 0777);
 	if (ret != 0) {
-		debug("ERROR: setup_nullblk_device: mkdir error\n");
+		debug("setup_nullblk_device error: mkdir error\n");
 		return ret;
 	}
 
-	ret = write_file("/sys/kernel/config/nullb/nullb0/size", "4096");
+	char file[256];
+	snprintf(file, sizeof(file), "/sys/kernel/config/nullb/nullb%llu/size", procid);
+	ret = write_file(file, "4096");
 	if (ret != 1) {
-		debug("ERROR: setup_nullblk_device: 1st write failed %d\n", ret);
+		debug("setup_nullblk_device error: 1st write failed %d\n", ret);
 		return ret;
 	}
-	write_file("/sys/kernel/config/nullb/nullb0/size", "4096");
-	write_file("/sys/kernel/config/nullb/nullb0/zoned", "1");
-	write_file("/sys/kernel/config/nullb/nullb0/memory_backed", "1");
-	write_file("/sys/kernel/config/nullb/nullb0/zone_size", "64");
 
-	write_file("/sys/kernel/config/nullb/nullb0/power", "1");
+	snprintf(file, sizeof(file), "/sys/kernel/config/nullb/nullb%llu/zoned", procid);
+	write_file(file, "1");
+	snprintf(file, sizeof(file), "/sys/kernel/config/nullb/nullb%llu/memory_backed", procid);
+	write_file(file, "1");
+	snprintf(file, sizeof(file), "/sys/kernel/config/nullb/nullb%llu/zone_size", procid);
+	write_file(file, "64");
+	snprintf(file, sizeof(file), "/sys/kernel/config/nullb/nullb%llu/power", procid);
+	write_file(file, "1");
 
-	char cmdline[256];
-	sprintf(cmdline, "mkzonefs -v -f /dev/nullb0");
-
+	// sprintf(cmdline, "echo 0");
+	// ret = runcmdline(cmdline);
+	// if (ret != 0) {
+	// 	debug("setup_nullblk_device error: echo 0 failed %d\n", ret);
+	// 	return ret;
+	// }
+	sprintf(cmdline, "mkzonefs -v -f /dev/nullb%llu", procid);
 	ret = runcmdline(cmdline);
 	if (ret != 0) {
-		debug("ERROR: setup_nullblk_device: mkzonefs failed\n");
+		debug("setup_nullblk_device error: mkzonefs failed, %d\n", ret);
 		return ret;
 	}
 	debug("setup_nullblk_device: success");
 	return 0;
 }
+
+// static long reset_nullblk_device()
+// {
+// 	// int ret = 0;
+// 	char dir[256];
+// 	char file[256];
+// 	snprintf(file, sizeof(file), "/sys/kernel/config/nullb/nullb%llu/power", procid);
+// 	write_file(file, "0");
+
+// 	snprintf(dir, sizeof(dir), "/sys/kernel/config/nullb/nullb%llu", procid);
+// 	rmdir(dir);
+
+// 	setup_nullblk_device();
+
+// 	return 0;
+// }
 
 // static long reset_nullblk_device()
 // {
@@ -3229,7 +3275,7 @@ static long syz_mount_image(
 	} else if (strcmp(fs, "zonefs") == 0) {
 		// if (setup_nullblk_device() == 0) {
 		memset(loopname, 0, sizeof(loopname));
-		snprintf(loopname, sizeof(loopname), "/dev/nullb0");
+		snprintf(loopname, sizeof(loopname), "/dev/nullb%llu", procid);
 		source = loopname;
 		// rmdir("/sys/kernel/config/nullb/nullb0");
 		// write_file("/sys/kernel/config/nullb/nullb0/power", "1");
@@ -4089,6 +4135,8 @@ static void sandbox_common_mount_tmpfs(void)
 	setup_gadgetfs();
 	setup_binderfs();
 	setup_fusectl();
+	// if (setup_nullblk_device() != 0)
+	// 	debug("do_sandbox_none: setup nullblk_device failed");
 }
 #endif
 
@@ -4958,6 +5006,9 @@ static void reset_loop()
 		ioctl(loopfd, LOOP_CLR_FD, 0);
 		close(loopfd);
 	}
+
+	// reset_nullblk_device();
+
 #endif
 #if SYZ_EXECUTOR || SYZ_NET_RESET
 	reset_net_namespace();
